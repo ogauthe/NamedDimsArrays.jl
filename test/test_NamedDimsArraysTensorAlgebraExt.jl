@@ -1,4 +1,3 @@
-@eval module $(gensym())
 using Test: @test, @testset, @test_broken
 using NamedDimsArrays: named, unname
 using TensorAlgebra: TensorAlgebra, contract, fusedims, splitdims
@@ -55,5 +54,4 @@ elts = (Float32, Float64, Complex{Float32}, Complex{Float64})
     q, r = qr(na, (i, k), (j, l))
     @test contract(q, r) ≈ na
   end
-end
 end

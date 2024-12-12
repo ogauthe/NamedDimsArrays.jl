@@ -1,4 +1,3 @@
-@eval module $(gensym())
 using Test: @test, @testset
 using NamedDimsArrays:
   NamedDimsArrays,
@@ -104,5 +103,4 @@ using NamedDimsArrays:
       @test !iszero(na)
     end
   end
-end
 end
