@@ -37,16 +37,32 @@ function Base.hash(r::AbstractNamedUnitRange, h::UInt)
 end
 
 # Unit range funcionality.
-# TODO: Also customize `Base.getindex` to preserve the name.
 Base.first(r::AbstractNamedUnitRange) = named(first(dename(r)), name(r))
 Base.last(r::AbstractNamedUnitRange) = named(last(dename(r)), name(r))
 Base.length(r::AbstractNamedUnitRange) = named(length(dename(r)), name(r))
 Base.size(r::AbstractNamedUnitRange) = (named(length(dename(r)), name(r)),)
 Base.axes(r::AbstractNamedUnitRange) = (named(only(axes(dename(r))), name(r)),)
 Base.step(r::AbstractNamedUnitRange) = named(step(dename(r)), name(r))
-Base.getindex(r::AbstractNamedUnitRange, i::Int) = named(getindex(dename(r), i), name(r))
+Base.getindex(r::AbstractNamedUnitRange, I::Int) = named_getindex(r, I)
+# Fix ambiguity error.
+function Base.getindex(r::AbstractNamedUnitRange, I::AbstractUnitRange{<:Integer})
+  return named_getindex(r, I)
+end
+# Fix ambiguity error.
+function Base.getindex(r::AbstractNamedUnitRange, I::Colon)
+  return named_getindex(r, I)
+end
+function Base.getindex(r::AbstractNamedUnitRange, I)
+  return named_getindex(r, I)
+end
 Base.isempty(r::AbstractNamedUnitRange) = isempty(dename(r))
 
+function Base.AbstractUnitRange{Int}(r::AbstractNamedUnitRange)
+  return AbstractUnitRange{Int}(dename(r))
+end
+
+Base.oneto(length::AbstractNamedInteger) = named(Base.OneTo(dename(length)), name(length))
+namedoneto(length::Integer, name) = Base.oneto(named(length, name))
 Base.iterate(r::AbstractNamedUnitRange) = isempty(r) ? nothing : (first(r), first(r))
 function Base.iterate(r::AbstractNamedUnitRange, i)
   i == last(r) && return nothing
@@ -54,7 +70,18 @@ function Base.iterate(r::AbstractNamedUnitRange, i)
   return (next, next)
 end
 
+function randname(rng::AbstractRNG, r::AbstractNamedUnitRange)
+  return named(dename(r), randname(name(r)))
+end
+
 function Base.show(io::IO, r::AbstractNamedUnitRange)
   print(io, "named(", dename(r), ", ", repr(name(r)), ")")
   return nothing
 end
+
+struct NamedColon{Name} <: Function
+  name::Name
+end
+dename(c::NamedColon) = Colon()
+name(c::NamedColon) = c.name
+named(::Colon, name) = NamedColon(name)
