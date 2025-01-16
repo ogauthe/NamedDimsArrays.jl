@@ -57,7 +57,9 @@ struct FusedNames{Names} <: AbstractName
   names::Names
 end
 fusednames(name1, name2) = FusedNames((name1, name2))
-fusednames(name1::FusedNames, name2::FusedNames) = FusedNames(generic_vcat(name1, name2))
+function fusednames(name1::FusedNames, name2::FusedNames)
+  return FusedNames(generic_vcat(name1.names, name2.names))
+end
 fusednames(name1, name2::FusedNames) = fusednames(FusedNames((name1,)), name2)
 fusednames(name1::FusedNames, name2) = fusednames(name1, FusedNames((name2,)))
 
@@ -85,6 +87,8 @@ Base.:-(i::AbstractNamedInteger) = setvalue(i, -dename(i))
 # Used in `AbstractArray` `Base.show`.
 # TODO: See if we can delete this.
 Base.:+(i1::Int, i2::AbstractNamedInteger) = i1 + dename(i2)
+
+Base.:*(i1::Int, i2::AbstractNamedInteger) = named(i1 * dename(i2), name(i2))
 
 Base.zero(i::AbstractNamedInteger) = setvalue(i, zero(dename(i)))
 Base.one(i::AbstractNamedInteger) = setvalue(i, one(dename(i)))

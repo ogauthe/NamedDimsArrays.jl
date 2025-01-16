@@ -140,7 +140,7 @@ function checked_indexin(x::AbstractUnitRange, y::AbstractUnitRange)
 end
 
 function Base.copy(a::AbstractNamedDimsArray)
-  return nameddimsarraytype(a)(copy(dename(a)), nameddimsindices(a))
+  return constructorof(typeof(a))(copy(dename(a)), nameddimsindices(a))
 end
 
 const NamedDimsIndices = Union{
@@ -181,9 +181,11 @@ Base.values(s::NaiveOrderedSet) = s.values
 Base.Tuple(s::NaiveOrderedSet) = Tuple(values(s))
 Base.length(s::NaiveOrderedSet) = length(values(s))
 Base.axes(s::NaiveOrderedSet) = axes(values(s))
+Base.keys(s::NaiveOrderedSet) = Base.OneTo(length(s))
 Base.:(==)(s1::NaiveOrderedSet, s2::NaiveOrderedSet) = issetequal(values(s1), values(s2))
 Base.iterate(s::NaiveOrderedSet, args...) = iterate(values(s), args...)
 Base.getindex(s::NaiveOrderedSet, I::Int) = values(s)[I]
+Base.get(s::NaiveOrderedSet, I::Integer, default) = get(values(s), I, default)
 Base.invperm(s::NaiveOrderedSet) = NaiveOrderedSet(invperm(values(s)))
 Base.Broadcast._axes(::Broadcasted, axes::NaiveOrderedSet) = axes
 Base.Broadcast.BroadcastStyle(::Type{<:NaiveOrderedSet}) = Style{NaiveOrderedSet}()
@@ -210,6 +212,10 @@ function Base.size(a::AbstractNamedDimsArray)
   return NaiveOrderedSet(map(named, size(dename(a)), nameddimsindices(a)))
 end
 
+function Base.length(a::AbstractNamedDimsArray)
+  return prod(size(a); init=1)
+end
+
 # Circumvent issue when ndims isn't known at compile time.
 function Base.axes(a::AbstractNamedDimsArray, d)
   return d <= ndims(a) ? axes(a)[d] : OneTo(1)
@@ -233,17 +239,20 @@ to_nameddimsaxes(dims) = map(to_nameddimsaxis, dims)
 to_nameddimsaxis(ax::NamedDimsAxis) = ax
 to_nameddimsaxis(I::NamedDimsIndices) = named(dename(only(axes(I))), I)
 
-nameddimsarraytype(a::AbstractNamedDimsArray) = nameddimsarraytype(typeof(a))
-nameddimsarraytype(a::Type{<:AbstractNamedDimsArray}) = unspecify_type_parameters(a)
+# Interface inspired by [ConstructionBase.constructorof](https://github.com/JuliaObjects/ConstructionBase.jl).
+constructorof(type::Type{<:AbstractArray}) = unspecify_type_parameters(type)
+
+constructorof_nameddims(type::Type{<:AbstractNamedDimsArray}) = constructorof(type)
+constructorof_nameddims(type::Type{<:AbstractArray}) = NamedDimsArray
 
 function similar_nameddims(a::AbstractNamedDimsArray, elt::Type, inds)
   ax = to_nameddimsaxes(inds)
-  return nameddimsarraytype(a)(similar(dename(a), elt, dename.(Tuple(ax))), name.(ax))
+  return constructorof(typeof(a))(similar(dename(a), elt, dename.(Tuple(ax))), name.(ax))
 end
 
 function similar_nameddims(a::AbstractArray, elt::Type, inds)
   ax = to_nameddimsaxes(inds)
-  return nameddims(similar(a, elt, dename.(Tuple(ax))), name.(ax))
+  return constructorof_nameddims(typeof(a))(similar(a, elt, dename.(Tuple(ax))), name.(ax))
 end
 
 # Base.similar gets the eltype at compile time.
@@ -262,7 +271,7 @@ function Base.similar(a::AbstractArray, elt::Type, inds::NaiveOrderedSet)
 end
 
 function setnameddimsindices(a::AbstractNamedDimsArray, nameddimsindices)
-  return nameddimsarraytype(a)(dename(a), nameddimsindices)
+  return constructorof(typeof(a))(dename(a), nameddimsindices)
 end
 function replacenameddimsindices(f, a::AbstractNamedDimsArray)
   return setnameddimsindices(a, replace(f, nameddimsindices(a)))
@@ -419,10 +428,18 @@ function Base.setindex!(a::AbstractNamedDimsArray, value, I::CartesianIndex)
   setindex!(a, value, to_indices(a, (I,))...)
   return a
 end
+
+function flatten_namedinteger(i::AbstractNamedInteger)
+  if name(i) isa Union{AbstractNamedUnitRange,AbstractNamedArray}
+    return name(i)[dename(i)]
+  end
+  return i
+end
+
 function Base.setindex!(
   a::AbstractNamedDimsArray, value, I1::AbstractNamedInteger, Irest::AbstractNamedInteger...
 )
-  I = (I1, Irest...)
+  I = flatten_namedinteger.((I1, Irest...))
   # TODO: Check if this permuation should be inverted.
   perm = getperm(name.(nameddimsindices(a)), name.(I))
   # TODO: Throw a `NameMismatch` error.
@@ -510,7 +527,9 @@ function Base.view(a::AbstractNamedDimsArray, I1::NamedViewIndex, Irest::NamedVi
   subinds = map(nameddimsindices(a), I) do dimname, i
     return checked_indexin(dename(i), dename(dimname))
   end
-  return nameddims(view(dename(a), subinds...), sub_nameddimsindices)
+  return constructorof_nameddims(typeof(a))(
+    view(dename(a), subinds...), sub_nameddimsindices
+  )
 end
 
 function Base.getindex(
@@ -522,22 +541,22 @@ end
 # Repeated definition of `Base.ViewIndex`.
 const ViewIndex = Union{Real,AbstractArray}
 
-function nameddims_view(a::AbstractArray, I...)
+function view_nameddims(a::AbstractArray, I...)
   sub_dims = filter(dim -> !(I[dim] isa Real), ntuple(identity, ndims(a)))
   sub_nameddimsindices = map(dim -> nameddimsindices(a, dim)[I[dim]], sub_dims)
-  return nameddims(view(dename(a), I...), sub_nameddimsindices)
+  return constructorof(typeof(a))(view(dename(a), I...), sub_nameddimsindices)
 end
 
 function Base.view(a::AbstractNamedDimsArray, I::ViewIndex...)
-  return nameddims_view(a, I...)
+  return view_nameddims(a, I...)
 end
 
-function nameddims_getindex(a::AbstractArray, I...)
+function getindex_nameddims(a::AbstractArray, I...)
   return copy(view(a, I...))
 end
 
 function Base.getindex(a::AbstractNamedDimsArray, I::ViewIndex...)
-  return nameddims_getindex(a, I...)
+  return getindex_nameddims(a, I...)
 end
 
 function Base.setindex!(
@@ -556,7 +575,7 @@ function Base.setindex!(
   Irest::NamedViewIndex...,
 )
   I = (I1, Irest...)
-  setindex!(a, nameddimsarraytype(a)(value, I), I...)
+  setindex!(a, constructorof(typeof(a))(value, I), I...)
   return a
 end
 function Base.setindex!(
@@ -580,13 +599,13 @@ end
 function aligndims(a::AbstractArray, dims)
   new_nameddimsindices = to_nameddimsindices(a, dims)
   # TODO: Check this permutation is correct (it may be the inverse of what we want).
-  perm = getperm(nameddimsindices(a), new_nameddimsindices)
+  perm = Tuple(getperm(nameddimsindices(a), new_nameddimsindices))
   isperm(perm) || throw(
     NameMismatch(
       "Dimension name mismatch $(nameddimsindices(a)), $(new_nameddimsindices)."
     ),
   )
-  return nameddimsarraytype(a)(permutedims(dename(a), perm), new_nameddimsindices)
+  return constructorof(typeof(a))(permutedims(dename(a), perm), new_nameddimsindices)
 end
 
 function aligneddims(a::AbstractArray, dims)
@@ -598,7 +617,9 @@ function aligneddims(a::AbstractArray, dims)
       "Dimension name mismatch $(nameddimsindices(a)), $(new_nameddimsindices)."
     ),
   )
-  return nameddimsarraytype(a)(PermutedDimsArray(dename(a), perm), new_nameddimsindices)
+  return constructorof_nameddims(typeof(a))(
+    PermutedDimsArray(dename(a), perm), new_nameddimsindices
+  )
 end
 
 # Convenient constructors
@@ -711,16 +732,17 @@ using Base.Broadcast:
   broadcasted,
   check_broadcast_shape,
   combine_axes
-using MapBroadcast: Mapped, mapped
+using MapBroadcast: MapBroadcast, Mapped, mapped, tile
 
 abstract type AbstractNamedDimsArrayStyle{N} <: AbstractArrayStyle{N} end
 
-struct NamedDimsArrayStyle{N} <: AbstractNamedDimsArrayStyle{N} end
-NamedDimsArrayStyle(::Val{N}) where {N} = NamedDimsArrayStyle{N}()
-NamedDimsArrayStyle{M}(::Val{N}) where {M,N} = NamedDimsArrayStyle{N}()
+struct NamedDimsArrayStyle{N,NDA} <: AbstractNamedDimsArrayStyle{N} end
+NamedDimsArrayStyle(::Val{N}) where {N} = NamedDimsArrayStyle{N,NamedDimsArray}()
+NamedDimsArrayStyle{M}(::Val{N}) where {M,N} = NamedDimsArrayStyle{N,NamedDimsArray}()
+NamedDimsArrayStyle{M,NDA}(::Val{N}) where {M,N,NDA} = NamedDimsArrayStyle{N,NDA}()
 
 function Broadcast.BroadcastStyle(arraytype::Type{<:AbstractNamedDimsArray})
-  return NamedDimsArrayStyle{ndims(arraytype)}()
+  return NamedDimsArrayStyle{ndims(arraytype),constructorof(arraytype)}()
 end
 
 function Broadcast.combine_axes(
@@ -762,6 +784,24 @@ function set_promote_shape(
   return named.(ax_promoted, name.(ax1))
 end
 
+# Handle operations like `ITensor() + ITensor(i, j)`.
+# TODO: Decide if this should be a general definition for `AbstractNamedDimsArray`,
+# or just for `AbstractITensor`.
+function set_promote_shape(
+  ax1::Tuple{}, ax2::Tuple{AbstractNamedUnitRange,Vararg{AbstractNamedUnitRange}}
+)
+  return ax2
+end
+
+# Handle operations like `ITensor(i, j) + ITensor()`.
+# TODO: Decide if this should be a general definition for `AbstractNamedDimsArray`,
+# or just for `AbstractITensor`.
+function set_promote_shape(
+  ax1::Tuple{AbstractNamedUnitRange,Vararg{AbstractNamedUnitRange}}, ax2::Tuple{}
+)
+  return ax1
+end
+
 function Broadcast.check_broadcast_shape(ax1::NaiveOrderedSet, ax2::NaiveOrderedSet)
   return set_check_broadcast_shape(Tuple(ax1), Tuple(ax2))
 end
@@ -775,12 +815,27 @@ function set_check_broadcast_shape(
   check_broadcast_shape(dename.(ax1), dename.(ax2_aligned))
   return nothing
 end
+set_check_broadcast_shape(ax1::Tuple{}, ax2::Tuple{}) = nothing
 
 # Dename and lazily permute the arguments using the reference
 # dimension names.
 # TODO: Make a version that gets the nameddimsindices from `m`.
 function denamed(m::Mapped, nameddimsindices)
   return mapped(m.f, map(arg -> denamed(arg, nameddimsindices), m.args)...)
+end
+
+function nameddimsarraytype(style::NamedDimsArrayStyle{<:Any,NDA}) where {NDA}
+  return NDA
+end
+
+using FillArrays: Fill
+
+function MapBroadcast.tile(a::AbstractNamedDimsArray, ax)
+  axes(a) == ax && return a
+  if iszero(ndims(a))
+    return constructorof(typeof(a))(Fill(a[], dename.(Tuple(ax))), name.(ax))
+  end
+  return error("Not implemented.")
 end
 
 function Base.similar(bc::Broadcasted{<:AbstractNamedDimsArrayStyle}, elt::Type, ax)
@@ -790,12 +845,12 @@ function Base.similar(bc::Broadcasted{<:AbstractNamedDimsArrayStyle}, elt::Type,
   # wrapper type rather than the generic `nameddims` constructor, which
   # can lose information.
   # Call it as `nameddimsarraytype(bc.style)`.
-  return nameddims(similar(m′, elt, dename.(Tuple(ax))), nameddimsindices)
+  return nameddimsarraytype(bc.style)(
+    similar(m′, elt, dename.(Tuple(ax))), nameddimsindices
+  )
 end
 
-function Base.copyto!(
-  dest::AbstractArray{<:Any,N}, bc::Broadcasted{<:AbstractNamedDimsArrayStyle{N}}
-) where {N}
+function Base.copyto!(dest::AbstractArray, bc::Broadcasted{<:AbstractNamedDimsArrayStyle})
   return copyto!(dest, Mapped(bc))
 end
 
