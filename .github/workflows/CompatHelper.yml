@@ -16,6 +16,7 @@ jobs:
         shell: julia --color=yes {0}
         run: |
           using CompatHelper
+          using Pkg
           registries = [
               Pkg.RegistrySpec(
                   name = "General",
