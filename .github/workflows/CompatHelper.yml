@@ -13,7 +13,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           COMPATHELPER_PRIV: ${{ secrets.DOCUMENTER_KEY }}
-        run: julia -e '
+        shell: julia --color=yes {0}
+        run: |
           using CompatHelper
           registries = [
               Pkg.RegistrySpec(
@@ -27,4 +28,4 @@ jobs:
                   url = "https://github.com/ITensor/ITensorRegistry.git",
               ),
           ]
-          CompatHelper.main(; registries)'
+          CompatHelper.main(; registries)
