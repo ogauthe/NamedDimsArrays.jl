@@ -6,6 +6,7 @@ struct NamedDimsArray{T,N,Parent<:AbstractArray{T,N},DimNames} <:
   parent::Parent
   nameddimsindices::DimNames
   function NamedDimsArray(parent::AbstractArray, dims)
+    # This checks the shapes of the inputs.
     nameddimsindices = to_nameddimsindices(parent, dims)
     return new{eltype(parent),ndims(parent),typeof(parent),typeof(nameddimsindices)}(
       parent, nameddimsindices
