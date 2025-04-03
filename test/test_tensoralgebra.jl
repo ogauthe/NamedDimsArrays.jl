@@ -1,5 +1,5 @@
-using LinearAlgebra: qr, svd
-using NamedDimsArrays: namedoneto, dename
+using LinearAlgebra: lq, norm, qr, svd
+using NamedDimsArrays: dename, left_null, nameddimsindices, namedoneto, right_null
 using TensorAlgebra: TensorAlgebra, contract, fusedims, splitdims
 using Test: @test, @testset, @test_broken
 elts = (Float32, Float64, Complex{Float32}, Complex{Float64})
@@ -43,20 +43,24 @@ elts = (Float32, Float64, Complex{Float32}, Complex{Float64})
     @test dename(na_split, ("j", "i", "b")) ≈
       reshape(dename(na, ("a", "b")), (dename(j), dename(i), dename(b)))
   end
-  @testset "qr" begin
+  @testset "qr/lq" begin
     dims = (2, 2, 2, 2)
     i, j, k, l = namedoneto.(dims, ("i", "j", "k", "l"))
 
     a = randn(elt, i, j)
     # TODO: Should this be allowed?
     # TODO: Add support for specifying new name.
-    q, r = qr(a, (i,))
-    @test q * r ≈ a
+    for f in (qr, lq)
+      x, y = f(a, (i,))
+      @test x * y ≈ a
+    end
 
     a = randn(elt, i, j, k, l)
     # TODO: Add support for specifying new name.
-    q, r = qr(a, (i, k), (j, l))
-    @test q * r ≈ a
+    for f in (qr, lq)
+      x, y = f(a, (i, k), (j, l))
+      @test x * y ≈ a
+    end
   end
   @testset "svd" begin
     dims = (2, 2, 2, 2)
@@ -72,5 +76,26 @@ elts = (Float32, Float64, Complex{Float32}, Complex{Float64})
     # TODO: Add support for specifying new name.
     u, s, v = svd(a, (i, k), (j, l))
     @test u * s * v ≈ a
+
+    # Test truncation.
+    a = randn(elt, i, j, k, l)
+    u, s, v = svd(a, (i, k), (j, l); trunc=(; maxrank=2))
+    @test u * s * v ≉ a
+    @test Int.(Tuple(size(s))) == (2, 2)
+  end
+  @testset "left_null/eight_null" begin
+    dims = (2, 2, 2, 2)
+    i, j, k, l = namedoneto.(dims, ("i", "j", "k", "l"))
+
+    a = randn(elt, i, j, k, l)
+    # TODO: Add support for specifying new name.
+    for n in (left_null(a, (i, k), (j, l)), left_null(a, (i, k)))
+      @test (i, k) ⊆ nameddimsindices(n)
+      @test norm(n * a) ≈ 0
+    end
+    for n in (right_null(a, (i, k), (j, l)), right_null(a, (i, k)))
+      @test (j, l) ⊆ nameddimsindices(n)
+      @test norm(n * a) ≈ 0
+    end
   end
 end
