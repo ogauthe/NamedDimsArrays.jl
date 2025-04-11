@@ -7,11 +7,11 @@ using TensorAlgebra:
   eigen,
   eigvals,
   factorize,
-  fusedims,
   left_null,
   left_orth,
   left_polar,
   lq,
+  matricize,
   orth,
   permmortar,
   polar,
@@ -19,10 +19,11 @@ using TensorAlgebra:
   right_null,
   right_orth,
   right_polar,
-  splitdims,
   svd,
-  svdvals
+  svdvals,
+  unmatricize
 using TensorAlgebra.BaseExtensions: BaseExtensions
+using TupleTools: TupleTools
 
 function TensorAlgebra.contract!(
   a_dest::AbstractNamedDimsArray,
@@ -98,10 +99,10 @@ end
 
 # i, j, k, l = named.((2, 2, 2, 2), ("i", "j", "k", "l"))
 # a = randn(i, j, k, l)
-# fusedims(a, (i, k) => "a")
-# fusedims(a, (i, k) => "a", (j, l) => "b")
-# TODO: Rewrite in terms of `fusedims(a, .., (1, 3))` interface.
-function TensorAlgebra.fusedims(na::AbstractNamedDimsArray, fusions::Pair...)
+# matricize(a, (i, k) => "a")
+# matricize(a, (i, k) => "a", (j, l) => "b")
+# TODO: Rewrite in terms of `matricize(a, .., (1, 3))` interface.
+function TensorAlgebra.matricize(na::AbstractNamedDimsArray, fusions::Vararg{Pair,2})
   nameddimsindices_fuse = map(group -> to_nameddimsindices(na, group), first.(fusions))
   nameddimsindices_fused = last.(fusions)
   if sum(length, nameddimsindices_fuse) < ndims(na)
@@ -115,11 +116,11 @@ function TensorAlgebra.fusedims(na::AbstractNamedDimsArray, fusions::Pair...)
     )
   end
   perm = blockedperm(na, nameddimsindices_fuse...)
-  a_fused = fusedims(dename(na), perm)
+  a_fused = matricize(dename(na), perm)
   return nameddimsarray(a_fused, nameddimsindices_fused)
 end
 
-function TensorAlgebra.splitdims(na::AbstractNamedDimsArray, splitters::Pair...)
+function TensorAlgebra.unmatricize(na::AbstractNamedDimsArray, splitters::Vararg{Pair,2})
   splitters = to_nameddimsindices(na, first.(splitters)) .=> last.(splitters)
   split_namedlengths = last.(splitters)
   splitters_unnamed = map(splitters) do splitter
@@ -128,7 +129,8 @@ function TensorAlgebra.splitdims(na::AbstractNamedDimsArray, splitters::Pair...)
     split_lengths = unname.(split_namedlengths)
     return fused_dim => split_lengths
   end
-  a_split = splitdims(dename(na), splitters_unnamed...)
+  blocked_axes = last.(TupleTools.sort(splitters_unnamed; by=first))
+  a_split = unmatricize(dename(na), blocked_axes...)
   names_split = Any[tuple.(nameddimsindices(na))...]
   for splitter in splitters
     fused_name, split_namedlengths = splitter
