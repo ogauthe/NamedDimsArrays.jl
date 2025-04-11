@@ -111,7 +111,7 @@ function to_dimname(a::AbstractNamedDimsArray, axis, dim::AbstractNamedUnitRange
   return dim
 end
 function to_dimname(a::AbstractNamedDimsArray, axis, dim)
-  return named(dename(axis), dim)
+  return named(dename(name(axis)), dim)
 end
 function to_dimname(a::AbstractNamedDimsArray, axis, dim::Name)
   return to_dimname(a, axis, name(dim))
@@ -439,10 +439,34 @@ end
 
 # Scalar indexing
 
+Base.firstindex(a::AbstractNamedDimsArray) = firstindex(dename(a))
+Base.lastindex(a::AbstractNamedDimsArray) = lastindex(dename(a))
+
+function Base.firstindex(a::AbstractNamedDimsArray, d)
+  return FirstIndex(a, d)
+end
+
+function Base.lastindex(a::AbstractNamedDimsArray, d)
+  return LastIndex(a, d)
+end
+
+# Redefine generic definition which expects `axes(a)` to
+# return a Tuple.
+function Base.to_indices(a::AbstractNamedDimsArray, I::Tuple)
+  return to_indices(a, Tuple(axes(a)), I)
+end
+# Fix ambiguity error with Base.
+function Base.to_indices(a::AbstractNamedDimsArray, I::Tuple{Union{Integer,CartesianIndex}})
+  return to_indices(a, Tuple(axes(a)), I)
+end
+function Base.checkbounds(::Type{Bool}, a::AbstractNamedDimsArray, I::Int...)
+  return checkbounds(Bool, dename(a), I...)
+end
+
 function Base.to_indices(
   a::AbstractNamedDimsArray, I::Tuple{AbstractNamedInteger,Vararg{AbstractNamedInteger}}
 )
-  perm = getperm(name.(I), name.(nameddimsindices(a)))
+  perm = getperm(to_nameddimsindices(a, name.(I)), nameddimsindices(a))
   # TODO: Throw a `NameMismatch` error.
   @assert isperm(perm)
   I = map(p -> I[p], perm)
@@ -456,26 +480,24 @@ function Base.to_indices(
   nameddimsindices = to_nameddimsindices(a, first.(I))
   return to_indices(a, map((i, name) -> name[i], last.(I), nameddimsindices))
 end
+function Base.to_indices(a::AbstractNamedDimsArray, I::Tuple{Pair,Vararg{Pair}})
+  nameddimsindices = to_nameddimsindices(a, first.(I))
+  return map((i, name) -> name[i], last.(I), nameddimsindices)
+end
+
 function Base.to_indices(a::AbstractNamedDimsArray, I::Tuple{NamedDimsCartesianIndex})
   return to_indices(a, Tuple(only(I)))
+end
+
+function Base.getindex(a::AbstractNamedDimsArray, I...)
+  return getindex(a, to_indices(a, I)...)
 end
 
 function Base.getindex(a::AbstractNamedDimsArray, I1::Int, Irest::Int...)
   return getindex(dename(a), I1, Irest...)
 end
-function Base.getindex(a::AbstractNamedDimsArray, I::CartesianIndex)
-  return getindex(a, to_indices(a, (I,))...)
-end
 function Base.getindex(
   a::AbstractNamedDimsArray, I1::AbstractNamedInteger, Irest::AbstractNamedInteger...
-)
-  return getindex(a, to_indices(a, (I1, Irest...))...)
-end
-function Base.getindex(a::AbstractNamedDimsArray, I::NamedDimsCartesianIndex)
-  return getindex(a, to_indices(a, (I,))...)
-end
-function Base.getindex(
-  a::AbstractNamedDimsArray, I1::Pair{<:Any,Int}, Irest::Pair{<:Any,Int}...
 )
   return getindex(a, to_indices(a, (I1, Irest...))...)
 end
@@ -494,13 +516,6 @@ end
 function Base.setindex!(a::AbstractNamedDimsArray, value, I::CartesianIndex)
   setindex!(a, value, to_indices(a, (I,))...)
   return a
-end
-
-function flatten_namedinteger(i::AbstractNamedInteger)
-  if name(i) isa Union{AbstractNamedUnitRange,AbstractNamedArray}
-    return name(i)[dename(i)]
-  end
-  return i
 end
 
 function Base.setindex!(
@@ -564,9 +579,7 @@ function Base.getindex(a::Array, I1::AbstractNamedUnitRange{<:Integer})
   return copy(view(a, I1))
 end
 function Base.getindex(a::AbstractNamedDimsArray, I1::Pair, Irest::Pair...)
-  I = (I1, Irest...)
-  nameddimsindices = to_nameddimsindices(a, first.(I))
-  return getindex(a, map((i, name) -> name[i], last.(I), nameddimsindices)...)
+  return getindex(a, to_indices(a, (I1, Irest...))...)
 end
 
 function Base.view(a::AbstractArray, I1::Name, Irest::Name...)
@@ -578,6 +591,10 @@ function Base.view(a::AbstractNamedDimsArray, I1::Name, Irest::Name...)
 end
 
 function Base.getindex(a::AbstractArray, I1::Name, Irest::Name...)
+  return copy(view(a, I1, Irest...))
+end
+# Fix ambiguity error.
+function Base.getindex(a::AbstractNamedDimsArray, I1::Name, Irest::Name...)
   return copy(view(a, I1, Irest...))
 end
 
